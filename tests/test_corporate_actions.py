@@ -1,0 +1,74 @@
+"""Splits are bitemporal: the same raw bar yields different adjusted
+prices depending on WHEN you ask. These tests pin down the property."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+import polars as pl
+
+from qfs.corporate_actions import adjusted_ohlcv_as_of
+
+
+def _bars():
+    # Synthetic AAPL-like 4:1 split between day 3 and day 4.
+    rows = [
+        ("AAPL", datetime(2020, 8, 28), 395.0, 405.0, 390.0, 400.0),
+        ("AAPL", datetime(2020, 8, 29), 405.0, 415.0, 400.0, 410.0),
+        ("AAPL", datetime(2020, 8, 30), 415.0, 425.0, 410.0, 420.0),
+        ("AAPL", datetime(2020, 8, 31),  99.0, 102.0,  98.0, 100.0),  # split day
+        ("AAPL", datetime(2020, 9,  1), 101.0, 106.0, 100.0, 105.0),
+    ]
+    return pl.DataFrame(
+        rows,
+        schema={
+            "symbol": pl.Utf8, "event_time": pl.Datetime("us"),
+            "open": pl.Float64, "high": pl.Float64,
+            "low": pl.Float64, "close": pl.Float64,
+        },
+        orient="row",
+    )
+
+
+def _splits():
+    return pl.DataFrame(
+        [("AAPL", datetime(2020, 8, 31), datetime(2020, 7, 30), 4.0)],
+        schema={
+            "symbol": pl.Utf8,
+            "ex_date": pl.Datetime("us"),
+            "knowledge_time": pl.Datetime("us"),
+            "ratio": pl.Float64,
+        },
+        orient="row",
+    )
+
+
+def test_pre_announcement_view_unchanged():
+    """Before the split was announced, no historical adjustment applies."""
+    out = adjusted_ohlcv_as_of(_bars(), _splits(), as_of=datetime(2020, 6, 1))
+    assert out["adj_close"].to_list() == [400.0, 410.0, 420.0, 100.0, 105.0]
+
+
+def test_announced_but_not_ex_view_unchanged():
+    """The split is known but has not yet taken effect — historical prices
+    still reflect their unsplit form. Adjusting them now would inject the
+    future into the past."""
+    out = adjusted_ohlcv_as_of(_bars(), _splits(), as_of=datetime(2020, 8, 15))
+    assert out["adj_close"].to_list() == [400.0, 410.0, 420.0, 100.0, 105.0]
+
+
+def test_post_ex_view_retroactively_adjusts():
+    """Once the split has happened, ALL bars before ex_date are divided
+    by the ratio. Bars on or after ex_date are unchanged."""
+    out = adjusted_ohlcv_as_of(_bars(), _splits(), as_of=datetime(2020, 9, 30))
+    assert out["adj_close"].to_list() == [100.0, 102.5, 105.0, 100.0, 105.0]
+    assert out["adj_open"].to_list() == [395.0 / 4, 405.0 / 4, 415.0 / 4, 99.0, 101.0]
+
+
+def test_no_eligible_splits_returns_passthrough():
+    out = adjusted_ohlcv_as_of(
+        _bars(),
+        _splits().clear(),
+        as_of=datetime(2030, 1, 1),
+    )
+    assert out["adj_close"].to_list() == out["close"].to_list()
