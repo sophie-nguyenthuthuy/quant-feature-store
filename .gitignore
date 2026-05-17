@@ -1,0 +1,23 @@
+# venv / packaging
+.venv/
+*.egg-info/
+build/
+dist/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# data / store output — large, regeneratable
+data/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# notebook crud
+.ipynb_checkpoints/
