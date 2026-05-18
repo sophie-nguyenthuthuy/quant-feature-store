@@ -13,6 +13,7 @@ __pycache__/
 
 # data / store output — large, regeneratable
 data/
+data-stress/
 
 # IDE / OS
 .vscode/
