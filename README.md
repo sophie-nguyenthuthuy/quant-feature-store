@@ -112,6 +112,9 @@ All registered via `@feature_view(name, version)` decorator in
 | `rsi`           | v2      | 14-period RSI, Wilder smoothing              |
 | `macd`          | v1      | MACD(12, 26, 9) line / signal / histogram    |
 | `bollinger`     | v1      | Bollinger(20, 2) mid / upper / lower / %B    |
+| `atr`           | v1      | Average True Range(14), Wilder smoothing     |
+| `stochastic`    | v1      | Stochastic oscillator(14, 3) %K and %D       |
+| `obv`           | v1      | On-Balance Volume — running signed-volume    |
 | `realized_vol`  | v1      | Annualised 20-day vol of log returns         |
 | `hl_spread`     | v1      | High-low range / close — bar liquidity proxy |
 
@@ -160,14 +163,15 @@ jumps from 1 hour to 1 day overnight, the pipeline broke.
 
 ## Corporate actions
 
-Splits are modelled as bitemporal facts:
+Splits and dividends are modelled as bitemporal facts:
 
 ```python
 from qfs.corporate_actions import adjusted_ohlcv_as_of
 
-# splits frame: (symbol, ex_date, knowledge_time, ratio)
-adj_jul = adjusted_ohlcv_as_of(bars, splits, as_of=datetime(2020, 7, 1))
-adj_oct = adjusted_ohlcv_as_of(bars, splits, as_of=datetime(2020, 10, 1))
+# splits:    (symbol, ex_date, knowledge_time, ratio)
+# dividends: (symbol, ex_date, knowledge_time, amount)
+adj_jul = adjusted_ohlcv_as_of(bars, as_of=datetime(2020, 7, 1), splits=splits)
+adj_oct = adjusted_ohlcv_as_of(bars, as_of=datetime(2020, 10, 1), splits=splits)
 # adj_jul.close: AAPL on Aug 28 shows $400 (unsplit world)
 # adj_oct.close: AAPL on Aug 28 shows $100 (retroactively adjusted)
 ```
@@ -176,17 +180,23 @@ The same raw bars, the same query, two different answers — because the
 *viewpoint date* is part of the query. That asymmetry is the whole
 point: a backtest run in July 2020 should not 'see' the August split.
 
-Dividends fit the same model with a subtractive adjustment; not
-implemented here to keep the demo tight.
+Dividends apply subtractively in the (split-adjusted) price space.
+When both are passed, splits are applied first, then dividends in the
+post-split price; the combined back-adjusted close is what a real
+total-return strategy would compute against.
 
 ## Design notes
 
 - **Storage:** append-only Parquet, one directory per
   `(view, version)`. DuckDB reads the directory as a single table.
-- **Read path:** a window-function query that, per request row, picks
-  the latest feature row with `event_time <= as_of` *and*
-  `knowledge_time <= as_of`. Slower than DuckDB `ASOF JOIN` but
-  expresses both inequalities correctly. Easy to swap later.
+- **Read path:** two dispatched query shapes. The slow path is a
+  window-function over both inequalities — always correct, used when
+  the data has restatements, predictive timestamps, or non-strictly-
+  increasing publishing. The fast path uses a single `ASOF JOIN` on
+  `knowledge_time` and is used when the per-view probe confirms the
+  bitemporal semantics collapse to a single-axis lookup (the common
+  realistic-lag case). Eligibility is cached per view; writes
+  invalidate the cache for that view.
 - **No mutation:** restating a fact means writing a new row with a
   newer `knowledge_time`. Old reads remain reproducible.
 - **Backtest engine:** the simulator deliberately omits transaction
@@ -201,7 +211,6 @@ correctness claim:
 
 - streaming ingest / online serving
 - distributed compute (everything fits in DuckDB on one box)
-- dividends as a separate adjustment (same model as splits)
 - transaction-cost / market-impact models in the backtest
 - ACL / multi-tenant isolation
 - a UI

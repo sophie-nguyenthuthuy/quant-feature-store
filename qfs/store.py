@@ -12,14 +12,13 @@ strategy could not have known at time t.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable
 
 import duckdb
 import polars as pl
-
 
 ENTITY_COL = "symbol"
 EVENT_COL = "event_time"
@@ -41,6 +40,9 @@ class FeatureStore:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._con = duckdb.connect(":memory:")
+        # Fast-path eligibility is data-dependent and stable until the next
+        # write into that view. Cache to avoid re-probing on every read.
+        self._fast_path_cache: dict[str, bool] = {}
 
     def _view_dir(self, ref: FeatureRef) -> Path:
         return self.root / ref.path_segment
@@ -76,6 +78,7 @@ class FeatureStore:
         out_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%f")
         df.write_parquet(out_dir / f"batch_{stamp}.parquet")
+        self._fast_path_cache.pop(ref.path_segment, None)
 
     def get_point_in_time(
         self,
@@ -98,9 +101,9 @@ class FeatureStore:
         if as_of_col not in entity_df.columns:
             raise ValueError(f"entity_df missing {as_of_col!r}")
 
-        entity = entity_df.with_columns(
-            pl.col(as_of_col).cast(pl.Datetime("us"))
-        ).with_row_index("__qid")
+        entity = entity_df.with_columns(pl.col(as_of_col).cast(pl.Datetime("us"))).with_row_index(
+            "__qid"
+        )
         self._con.register("entity", entity)
 
         result = entity
@@ -111,38 +114,98 @@ class FeatureStore:
             if not list(view_dir.glob("*.parquet")):
                 raise FileNotFoundError(f"no data for {ref.path_segment}")
 
-            # Bitemporal point-in-time query: per query row, latest feature
-            # row whose event_time AND knowledge_time are both <= as_of.
-            sql = f"""
-            WITH feats AS (
-                SELECT * FROM read_parquet('{parquet_glob}')
-            ),
-            candidates AS (
-                SELECT
-                    e.__qid,
-                    f.* EXCLUDE ({ENTITY_COL}, {EVENT_COL}, {KNOWLEDGE_COL}),
-                    ROW_NUMBER() OVER (
-                        PARTITION BY e.__qid
-                        ORDER BY f.{EVENT_COL} DESC, f.{KNOWLEDGE_COL} DESC
-                    ) AS rn
-                FROM entity e
-                LEFT JOIN feats f
-                    ON e.{ENTITY_COL} = f.{ENTITY_COL}
-                   AND f.{EVENT_COL} <= e.{as_of_col}
-                   AND f.{KNOWLEDGE_COL} <= e.{as_of_col}
-            )
-            SELECT * EXCLUDE (rn) FROM candidates WHERE rn = 1 OR rn IS NULL
-            """
+            sql = self._build_pit_query(parquet_glob, as_of_col, ref.path_segment)
             feat_df = pl.from_arrow(self._con.execute(sql).to_arrow_table())
 
             prefix = ref.path_segment + "__"
-            renames = {
-                c: prefix + c for c in feat_df.columns if c != "__qid"
-            }
+            renames = {c: prefix + c for c in feat_df.columns if c != "__qid"}
             feat_df = feat_df.rename(renames)
             result = result.join(feat_df, on="__qid", how="left")
 
         return result.drop("__qid")
+
+    def _build_pit_query(self, parquet_glob: str, as_of_col: str, cache_key: str) -> str:
+        """Pick the read path.
+
+        DuckDB ASOF JOIN supports only ONE inequality, so we can't directly
+        express the bitemporal "max event_time AND max knowledge_time"
+        condition in one pass. The slow path uses a window function with
+        two inequalities in the join predicate; it is always correct.
+
+        The fast path uses ASOF on knowledge_time alone. It is correct
+        only when:
+          (1) no restatements: (symbol, event_time) is unique
+          (2) STRICTLY increasing publishing: per symbol, knowledge_time
+              is strictly greater for later event_times (so max kt
+              uniquely picks max et — no ties for ASOF to misresolve)
+          (3) no predictive timestamps: knowledge_time >= event_time
+              (so kt <= as_of implies et <= as_of)
+
+        These conditions cover the overwhelming common case (real-time
+        feeds with a per-row publishing lag). Macro revisions, constant-
+        timestamp backfills, and late-arriving corrections automatically
+        fall back to the slow path.
+
+        Detection is one cheap SQL probe per view, cached for subsequent
+        reads (invalidated on the next write to that view).
+        """
+        if cache_key in self._fast_path_cache:
+            fast_path_ok = self._fast_path_cache[cache_key]
+        else:
+            probe = self._con.execute(f"""
+                WITH f AS (SELECT * FROM read_parquet('{parquet_glob}')),
+                     lagged AS (
+                         SELECT
+                             {KNOWLEDGE_COL},
+                             {EVENT_COL},
+                             LAG({KNOWLEDGE_COL}) OVER (
+                                 PARTITION BY {ENTITY_COL} ORDER BY {EVENT_COL}
+                             ) AS prev_kt
+                         FROM f
+                     )
+                SELECT
+                    (SELECT COUNT(*) <> COUNT(DISTINCT ({ENTITY_COL}, {EVENT_COL}))
+                       FROM f) AS has_restatements,
+                    (SELECT BOOL_OR({KNOWLEDGE_COL} < {EVENT_COL}) FROM f) AS has_predictive,
+                    (SELECT BOOL_OR({KNOWLEDGE_COL} <= prev_kt) FROM lagged) AS not_strict
+            """).fetchone()
+            fast_path_ok = not any(probe)
+            self._fast_path_cache[cache_key] = fast_path_ok
+
+        if fast_path_ok:
+            return f"""
+            WITH feats AS (
+                SELECT * FROM read_parquet('{parquet_glob}')
+            )
+            SELECT
+                e.__qid,
+                f.* EXCLUDE ({ENTITY_COL}, {EVENT_COL}, {KNOWLEDGE_COL})
+            FROM entity e
+            ASOF LEFT JOIN feats f
+                ON e.{ENTITY_COL} = f.{ENTITY_COL}
+               AND e.{as_of_col} >= f.{KNOWLEDGE_COL}
+            """
+
+        return f"""
+        WITH feats AS (
+            SELECT * FROM read_parquet('{parquet_glob}')
+        ),
+        candidates AS (
+            SELECT
+                e.__qid,
+                f.* EXCLUDE ({ENTITY_COL}, {EVENT_COL}, {KNOWLEDGE_COL}),
+                ROW_NUMBER() OVER (
+                    PARTITION BY e.__qid
+                    ORDER BY f.{EVENT_COL} DESC, f.{KNOWLEDGE_COL} DESC
+                ) AS rn
+            FROM entity e
+            LEFT JOIN feats f
+                ON e.{ENTITY_COL} = f.{ENTITY_COL}
+               AND f.{EVENT_COL} <= e.{as_of_col}
+               AND f.{KNOWLEDGE_COL} <= e.{as_of_col}
+        )
+        SELECT * EXCLUDE (rn) FROM candidates WHERE rn = 1 OR rn IS NULL
+        """
 
     def list_views(self) -> list[FeatureRef]:
         out = []
@@ -152,7 +215,7 @@ class FeatureStore:
                 out.append(FeatureRef(view, version))
         return out
 
-    def audit(self, view: str | None = None, version: str | None = None) -> list["ViewAudit"]:
+    def audit(self, view: str | None = None, version: str | None = None) -> list[ViewAudit]:
         """Per-view operational stats: row count, time ranges, the
         distribution of knowledge_lag (= knowledge_time - event_time),
         and count of restated keys (same (symbol, event_time), multiple
