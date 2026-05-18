@@ -54,13 +54,20 @@ uv pip install -e ".[dev]"
 .venv/bin/pytest -v                            # 17 tests, ~2s
 .venv/bin/python demo/backtest.py              # ingest + materialise
 .venv/bin/python demo/strategy_rsi_meanrev.py  # leakage-safe backtest
+.venv/bin/python demo/macro_revisions.py       # GDP vintages worked example
+.venv/bin/python demo/stress.py                # 30-ticker scaling profile
 ```
 
 The ingest demo pulls 2 years of daily OHLCV for `AAPL MSFT SPY NVDA`,
 computes every registered feature view, and runs a point-in-time pull
 against every bar. The strategy demo runs a naive RSI mean-reversion
 through the backtest engine end-to-end; expect a negative Sharpe — the
-point is the pipeline, not the alpha.
+point is the pipeline, not the alpha. The macro-revisions demo shows
+real BEA vintages of US GDP being queried at different `as_of` dates
+(Q4 2008 reads as -3.8%, -6.2%, -6.3%, or -8.4% depending on when you
+ask). The stress script times each phase on a 30-ticker S&P-large-cap
+universe — ~5s end-to-end, no scaling cliffs in the qfs code itself
+(yfinance network fetch dominates).
 
 ## Using the store
 
@@ -222,5 +229,7 @@ tests/
 demo/
   backtest.py                  # ingest + materialise + point-in-time pull
   strategy_rsi_meanrev.py      # end-to-end strategy through the engine
+  macro_revisions.py           # real BEA GDP vintages — bitemporal example
+  stress.py                    # 30-ticker scaling profile
 .github/workflows/ci.yml       # pytest on push / PR
 ```
