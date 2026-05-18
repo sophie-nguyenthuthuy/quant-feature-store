@@ -11,9 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python
         run: uv venv --python 3.11
