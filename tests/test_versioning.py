@@ -7,10 +7,10 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
-from qfs import FeatureStore
 import qfs.features  # noqa: F401  — register all views
-from qfs.registry import registry
+from qfs import FeatureStore
 from qfs.data import load_ohlcv  # noqa: F401
+from qfs.registry import registry
 
 
 def _toy_ohlcv():
@@ -19,14 +19,19 @@ def _toy_ohlcv():
     price = 100.0
     for i in range(40):
         price *= 1.0 + ((-1) ** i) * 0.01
-        rows.append(("AAPL", base + timedelta(days=i), price, price + 1, price - 1, price, 1_000_000.0))
+        rows.append(
+            ("AAPL", base + timedelta(days=i), price, price + 1, price - 1, price, 1_000_000.0)
+        )
     return pl.DataFrame(
         rows,
         schema={
             "symbol": pl.Utf8,
             "event_time": pl.Datetime("us"),
-            "open": pl.Float64, "high": pl.Float64, "low": pl.Float64,
-            "close": pl.Float64, "volume": pl.Float64,
+            "open": pl.Float64,
+            "high": pl.Float64,
+            "low": pl.Float64,
+            "close": pl.Float64,
+            "volume": pl.Float64,
         },
         orient="row",
     )

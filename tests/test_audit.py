@@ -19,9 +19,9 @@ def test_audit_basic(tmp_path):
     t0 = datetime(2024, 1, 1)
     df = pl.DataFrame(
         [
-            _row("AAPL", t0,                      t0 + timedelta(minutes=1), 1.0),
-            _row("AAPL", t0 + timedelta(days=1),  t0 + timedelta(days=1, minutes=1), 2.0),
-            _row("MSFT", t0,                      t0 + timedelta(minutes=2), 10.0),
+            _row("AAPL", t0, t0 + timedelta(minutes=1), 1.0),
+            _row("AAPL", t0 + timedelta(days=1), t0 + timedelta(days=1, minutes=1), 2.0),
+            _row("MSFT", t0, t0 + timedelta(minutes=2), 10.0),
         ],
         schema={
             "symbol": pl.Utf8,
@@ -50,8 +50,8 @@ def test_audit_detects_restatement(tmp_path):
     t0 = datetime(2024, 1, 1)
     df = pl.DataFrame(
         [
-            ("CPI", t0, t0,                       100.0),
-            ("CPI", t0, t0 + timedelta(days=10),  101.5),
+            ("CPI", t0, t0, 100.0),
+            ("CPI", t0, t0 + timedelta(days=10), 101.5),
         ],
         schema={
             "symbol": pl.Utf8,

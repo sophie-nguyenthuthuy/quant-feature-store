@@ -10,16 +10,14 @@ closes — exactly how a research notebook would consume the store.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import polars as pl
 
-from qfs import FeatureStore
 import qfs.features  # noqa: F401  — side-effect registration
-from qfs.registry import registry
+from qfs import FeatureStore
 from qfs.data import load_ohlcv
-
+from qfs.registry import registry
 
 SYMBOLS = ["AAPL", "MSFT", "SPY", "NVDA"]
 START = "2023-01-01"
@@ -43,7 +41,8 @@ def main() -> None:
         feat = view.compute(ohlcv)
         feat = feat.join(
             ohlcv.select("symbol", "event_time", "knowledge_time"),
-            on=["symbol", "event_time"], how="left",
+            on=["symbol", "event_time"],
+            how="left",
         )
         store.write(feat, view.name, view.version)
         print(f"  wrote {view.name}@{view.version}: {len(feat):,} rows")
@@ -66,8 +65,7 @@ def main() -> None:
     # Sanity: oldest queries should have null features (warmup).
     oldest = df.sort("as_of").head(1)
     null_count = sum(
-        1 for c in oldest.columns
-        if c not in ("symbol", "as_of") and oldest[c][0] is None
+        1 for c in oldest.columns if c not in ("symbol", "as_of") and oldest[c][0] is None
     )
     print(f"\nfeatures null at first bar (warmup, expected non-zero): {null_count}")
 

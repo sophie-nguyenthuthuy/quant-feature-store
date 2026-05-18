@@ -34,7 +34,9 @@ def _frame(rows):
 
 def test_basic_read(store):
     t0 = datetime(2024, 1, 1)
-    df = _frame([("AAPL", t0, t0, 1.0), ("AAPL", t0 + timedelta(days=1), t0 + timedelta(days=1), 2.0)])
+    df = _frame(
+        [("AAPL", t0, t0, 1.0), ("AAPL", t0 + timedelta(days=1), t0 + timedelta(days=1), 2.0)]
+    )
     store.write(df, "f", "v1")
     q = pl.DataFrame({"symbol": ["AAPL"], "as_of": [t0 + timedelta(days=2)]})
     got = store.get_point_in_time(q, [("f", "v1")])
@@ -44,10 +46,12 @@ def test_basic_read(store):
 def test_no_lookahead_on_event_time(store):
     """A row stamped tomorrow must not be visible today."""
     t0 = datetime(2024, 1, 1)
-    df = _frame([
-        ("AAPL", t0,                     t0,                     1.0),
-        ("AAPL", t0 + timedelta(days=5), t0 + timedelta(days=5), 999.0),  # the future
-    ])
+    df = _frame(
+        [
+            ("AAPL", t0, t0, 1.0),
+            ("AAPL", t0 + timedelta(days=5), t0 + timedelta(days=5), 999.0),  # the future
+        ]
+    )
     store.write(df, "f", "v1")
     q = pl.DataFrame({"symbol": ["AAPL"], "as_of": [t0 + timedelta(days=2)]})
     got = store.get_point_in_time(q, [("f", "v1")])
@@ -59,10 +63,12 @@ def test_no_lookahead_on_knowledge_time(store):
     must also be excluded. This is what generic feature stores get wrong.
     Models a macro revision: the figure 'happened' Jan 1 but was published
     Jan 10. A backtest as-of Jan 5 must not see it."""
-    df = _frame([
-        ("CPI", datetime(2024, 1, 1), datetime(2024, 1, 1),  100.0),   # first print
-        ("CPI", datetime(2024, 1, 1), datetime(2024, 1, 10), 101.5),   # revision
-    ])
+    df = _frame(
+        [
+            ("CPI", datetime(2024, 1, 1), datetime(2024, 1, 1), 100.0),  # first print
+            ("CPI", datetime(2024, 1, 1), datetime(2024, 1, 10), 101.5),  # revision
+        ]
+    )
     store.write(df, "macro", "v1")
     q = pl.DataFrame({"symbol": ["CPI"], "as_of": [datetime(2024, 1, 5)]})
     got = store.get_point_in_time(q, [("macro", "v1")])
@@ -87,17 +93,20 @@ def test_missing_feature_returns_null(store):
 
 def test_multi_symbol_and_multi_query(store):
     t0 = datetime(2024, 1, 1)
-    df = _frame([
-        ("AAPL", t0,                     t0,                     1.0),
-        ("AAPL", t0 + timedelta(days=2), t0 + timedelta(days=2), 2.0),
-        ("MSFT", t0,                     t0,                     10.0),
-        ("MSFT", t0 + timedelta(days=2), t0 + timedelta(days=2), 20.0),
-    ])
+    df = _frame(
+        [
+            ("AAPL", t0, t0, 1.0),
+            ("AAPL", t0 + timedelta(days=2), t0 + timedelta(days=2), 2.0),
+            ("MSFT", t0, t0, 10.0),
+            ("MSFT", t0 + timedelta(days=2), t0 + timedelta(days=2), 20.0),
+        ]
+    )
     store.write(df, "f", "v1")
-    q = pl.DataFrame({
-        "symbol": ["AAPL", "AAPL", "MSFT"],
-        "as_of":  [t0 + timedelta(days=1), t0 + timedelta(days=3),
-                   t0 + timedelta(days=1)],
-    })
+    q = pl.DataFrame(
+        {
+            "symbol": ["AAPL", "AAPL", "MSFT"],
+            "as_of": [t0 + timedelta(days=1), t0 + timedelta(days=3), t0 + timedelta(days=1)],
+        }
+    )
     got = store.get_point_in_time(q, [("f", "v1")])
     assert got["f__v1__x"].to_list() == [1.0, 2.0, 10.0]

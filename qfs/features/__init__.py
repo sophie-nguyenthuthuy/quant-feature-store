@@ -1,1 +1,1 @@
-from qfs.features import ta, market  # noqa: F401  — side-effect registration
+from qfs.features import market, ta  # noqa: F401  — side-effect registration

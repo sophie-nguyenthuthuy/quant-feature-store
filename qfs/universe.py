@@ -28,7 +28,6 @@ from pathlib import Path
 
 import polars as pl
 
-
 _SCHEMA = {
     "symbol": pl.Utf8,
     "included_from": pl.Datetime("us"),
@@ -85,9 +84,6 @@ class Universe:
         # AND (included_to is null OR included_to > as_of).
         active = latest.filter(
             (pl.col("included_from") <= as_of_lit)
-            & (
-                pl.col("included_to").is_null()
-                | (pl.col("included_to") > as_of_lit)
-            )
+            & (pl.col("included_to").is_null() | (pl.col("included_to") > as_of_lit))
         )
         return sorted(active["symbol"].unique().to_list())

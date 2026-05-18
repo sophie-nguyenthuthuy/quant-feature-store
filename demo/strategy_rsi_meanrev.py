@@ -15,11 +15,10 @@ from pathlib import Path
 
 import polars as pl
 
-from qfs import FeatureStore, backtest
 import qfs.features  # noqa: F401
+from qfs import FeatureStore, backtest
 from qfs.data import load_ohlcv
 from qfs.registry import registry
-
 
 SYMBOLS = ["AAPL", "MSFT", "SPY", "NVDA"]
 START = "2023-01-01"
@@ -52,14 +51,17 @@ def main() -> None:
         for v in registry.all():
             feat = v.compute(ohlcv).join(
                 ohlcv.select("symbol", "event_time", "knowledge_time"),
-                on=["symbol", "event_time"], how="left",
+                on=["symbol", "event_time"],
+                how="left",
             )
             store.write(feat, v.name, v.version)
         bars = ohlcv
     else:
         bars = load_ohlcv(SYMBOLS, START, END, publish_lag_minutes=1)
 
-    print(f"running RSI mean-reversion on {SYMBOLS}, {bars['event_time'].min()} -> {bars['event_time'].max()}")
+    print(
+        f"running RSI mean-reversion on {SYMBOLS}, {bars['event_time'].min()} -> {bars['event_time'].max()}"
+    )
     result = backtest(
         store=store,
         bars=bars,

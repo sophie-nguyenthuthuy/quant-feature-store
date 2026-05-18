@@ -29,10 +29,7 @@ def _make_bars(seed: int = 0, n: int = 200) -> pl.DataFrame:
     rets = rng.normal(0.0, 0.01, size=n)
     price = 100.0 * np.cumprod(1.0 + rets)
     base = datetime(2024, 1, 1)
-    rows = [
-        ("TST", base + timedelta(days=i), base + timedelta(days=i), price[i])
-        for i in range(n)
-    ]
+    rows = [("TST", base + timedelta(days=i), base + timedelta(days=i), price[i]) for i in range(n)]
     return pl.DataFrame(
         rows,
         schema={
@@ -46,9 +43,14 @@ def _make_bars(seed: int = 0, n: int = 200) -> pl.DataFrame:
 
 
 def _perfect_foresight_feature(bars: pl.DataFrame) -> pl.DataFrame:
-    return bars.sort("event_time").with_columns(
-        ((pl.col("close").shift(-1) - pl.col("close")) / pl.col("close")).alias("tomorrow_ret")
-    ).drop_nulls("tomorrow_ret").select("symbol", "event_time", "tomorrow_ret")
+    return (
+        bars.sort("event_time")
+        .with_columns(
+            ((pl.col("close").shift(-1) - pl.col("close")) / pl.col("close")).alias("tomorrow_ret")
+        )
+        .drop_nulls("tomorrow_ret")
+        .select("symbol", "event_time", "tomorrow_ret")
+    )
 
 
 def long_if_positive(features: pl.DataFrame) -> dict[str, float]:
@@ -79,9 +81,7 @@ def test_lying_lag_beats_honest_lag(tmp_path):
     # Honest: stamp knowledge_time = event_time + 1 day. We could only
     # truly know 'tomorrow's return' after tomorrow's close prints.
     honest_store = FeatureStore(tmp_path / "honest")
-    honest = feat.with_columns(
-        (pl.col("event_time") + pl.duration(days=1)).alias("knowledge_time")
-    )
+    honest = feat.with_columns((pl.col("event_time") + pl.duration(days=1)).alias("knowledge_time"))
     honest_store.write(honest, "ff", "v1")
 
     lying_res = backtest(lying_store, bars, [("ff", "v1")], long_if_positive)

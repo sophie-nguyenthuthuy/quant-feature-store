@@ -15,17 +15,42 @@ from pathlib import Path
 
 import polars as pl
 
-from qfs import FeatureStore, backtest
 import qfs.features  # noqa: F401
+from qfs import FeatureStore, backtest
 from qfs.data import load_ohlcv
 from qfs.registry import registry
 
-
 UNIVERSE = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
-    "AVGO", "JPM", "LLY", "V", "XOM", "WMT", "MA", "PG", "JNJ", "HD",
-    "ORCL", "COST", "BAC", "MRK", "ABBV", "CVX", "KO", "PEP", "ADBE",
-    "CRM", "MCD", "TMO",
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "NVDA",
+    "META",
+    "TSLA",
+    "BRK-B",
+    "AVGO",
+    "JPM",
+    "LLY",
+    "V",
+    "XOM",
+    "WMT",
+    "MA",
+    "PG",
+    "JNJ",
+    "HD",
+    "ORCL",
+    "COST",
+    "BAC",
+    "MRK",
+    "ABBV",
+    "CVX",
+    "KO",
+    "PEP",
+    "ADBE",
+    "CRM",
+    "MCD",
+    "TMO",
 ]
 START = "2023-01-01"
 END = "2025-01-01"
@@ -60,7 +85,8 @@ def main() -> None:
         for v in registry.all():
             feat = v.compute(bars).join(
                 bars.select("symbol", "event_time", "knowledge_time"),
-                on=["symbol", "event_time"], how="left",
+                on=["symbol", "event_time"],
+                how="left",
             )
             store.write(feat, v.name, v.version)
 
@@ -70,11 +96,10 @@ def main() -> None:
 
     with timed("point-in-time pull", results):
         queries = bars.select(
-            "symbol", pl.col("knowledge_time").alias("as_of"),
+            "symbol",
+            pl.col("knowledge_time").alias("as_of"),
         )
-        feats = store.get_point_in_time(
-            queries, [(v.name, v.version) for v in registry.all()]
-        )
+        feats = store.get_point_in_time(queries, [(v.name, v.version) for v in registry.all()])
     print(f"    feat rows: {feats.height:,}")
 
     with timed("backtest buy&hold", results):

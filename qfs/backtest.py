@@ -16,14 +16,13 @@ Add those for real research; for proving the store works, they're noise.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import polars as pl
 
 from qfs.store import FeatureStore
-
 
 # strategy(features_at_t) -> {symbol: target_position}
 # features_at_t is a polars frame with one row per symbol, columns are
@@ -33,13 +32,13 @@ Strategy = Callable[[pl.DataFrame], dict[str, float]]
 
 @dataclass
 class BacktestResult:
-    equity: pl.DataFrame      # columns: as_of, equity
-    positions: pl.DataFrame   # columns: as_of, symbol, position
-    returns: pl.DataFrame     # columns: as_of, ret
+    equity: pl.DataFrame  # columns: as_of, equity
+    positions: pl.DataFrame  # columns: as_of, symbol, position
+    returns: pl.DataFrame  # columns: as_of, ret
     total_return: float
     sharpe: float
     max_drawdown: float
-    turnover: float           # mean absolute change in position per bar
+    turnover: float  # mean absolute change in position per bar
 
     def summary(self) -> str:
         return (
@@ -88,9 +87,9 @@ def backtest(
         raise ValueError(f"bars missing columns: {missing}")
 
     bars = bars.sort("event_time", "symbol")
-    timeline = bars.select("event_time", "knowledge_time").unique(
-        subset=["event_time"]
-    ).sort("event_time")
+    timeline = (
+        bars.select("event_time", "knowledge_time").unique(subset=["event_time"]).sort("event_time")
+    )
 
     # One pull for the whole backtest: ask the store for features at every
     # (symbol, knowledge_time). Vectorised join >> per-bar loop.
@@ -105,9 +104,7 @@ def backtest(
     # Per-bar prices keyed by knowledge_time so we can mark equity at each
     # decision point. Returns are close-to-close on the bar AFTER the one
     # whose features the strategy used.
-    prices = bars.select("symbol", "knowledge_time", "close").sort(
-        "knowledge_time", "symbol"
-    )
+    prices = bars.select("symbol", "knowledge_time", "close").sort("knowledge_time", "symbol")
 
     timeline_rows = timeline.to_dicts()
     symbols = sorted(bars["symbol"].unique().to_list())
@@ -143,8 +140,8 @@ def backtest(
                 bar_ret += pos * (p1 - p0) / p0
                 n_active += 1
             if n_active > 0:
-                bar_ret /= n_active   # equal-weighted across active positions
-            equity *= (1.0 + bar_ret)
+                bar_ret /= n_active  # equal-weighted across active positions
+            equity *= 1.0 + bar_ret
             return_rows.append({"as_of": kt, "ret": bar_ret})
 
         equity_rows.append({"as_of": kt, "equity": equity})
@@ -168,9 +165,7 @@ def backtest(
 
     eq_df = pl.DataFrame(equity_rows)
     pos_df = pl.DataFrame(position_rows)
-    ret_df = pl.DataFrame(return_rows) if return_rows else pl.DataFrame(
-        {"as_of": [], "ret": []}
-    )
+    ret_df = pl.DataFrame(return_rows) if return_rows else pl.DataFrame({"as_of": [], "ret": []})
 
     rets = ret_df["ret"].to_numpy() if ret_df.height else np.array([])
     eq_arr = eq_df["equity"].to_numpy() if eq_df.height else np.array([])

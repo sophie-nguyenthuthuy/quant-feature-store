@@ -8,11 +8,10 @@ new research runs against v2.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 import polars as pl
-
 
 ComputeFn = Callable[[pl.DataFrame], pl.DataFrame]
 
@@ -50,9 +49,7 @@ class Registry:
 registry = Registry()
 
 
-def feature_view(
-    name: str, version: str, inputs: list[str] | None = None, description: str = ""
-):
+def feature_view(name: str, version: str, inputs: list[str] | None = None, description: str = ""):
     def decorator(fn: ComputeFn) -> FeatureView:
         view = FeatureView(
             name=name,

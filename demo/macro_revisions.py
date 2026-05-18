@@ -25,7 +25,6 @@ import polars as pl
 
 from qfs import FeatureStore
 
-
 # Real BEA vintages: U.S. real GDP, quarter-over-quarter annualised rate.
 # Each row is one published estimate. Multiple estimates per quarter is
 # the whole point. Numbers are from the BEA archive / FRED ALFRED.
@@ -42,17 +41,15 @@ VINTAGES: list[tuple[str, str, str, float]] = [
     ("GDP_US", "2008-12-31", "2009-03-26", -6.3),  # Third
     ("GDP_US", "2008-12-31", "2009-07-31", -6.3),  # Annual revision
     ("GDP_US", "2008-12-31", "2013-07-31", -8.4),  # Comprehensive revision
-
     # Q1 2020 — COVID quarter. Less dramatic revision but the same shape.
     ("GDP_US", "2020-03-31", "2020-04-29", -4.8),  # Advance
     ("GDP_US", "2020-03-31", "2020-05-28", -5.0),  # Second
     ("GDP_US", "2020-03-31", "2020-06-25", -5.0),  # Third
     ("GDP_US", "2020-03-31", "2021-07-29", -5.1),  # Annual revision
-
     # Q2 2024 — recent quarter to show the normal cadence.
-    ("GDP_US", "2024-06-30", "2024-07-25",  2.8),
-    ("GDP_US", "2024-06-30", "2024-08-29",  3.0),
-    ("GDP_US", "2024-06-30", "2024-09-26",  3.0),
+    ("GDP_US", "2024-06-30", "2024-07-25", 2.8),
+    ("GDP_US", "2024-06-30", "2024-08-29", 3.0),
+    ("GDP_US", "2024-06-30", "2024-09-26", 3.0),
 ]
 
 
@@ -99,16 +96,20 @@ def main() -> None:
         ]
         rows = []
         for v in viewpoints:
-            q = pl.DataFrame({
-                "symbol": ["GDP_US"],
-                "as_of": [datetime.fromisoformat(v)],
-            })
+            q = pl.DataFrame(
+                {
+                    "symbol": ["GDP_US"],
+                    "as_of": [datetime.fromisoformat(v)],
+                }
+            )
             out = store.get_point_in_time(q, [("gdp", "v1")])
             val = out["gdp__v1__gdp_qoq_ann"][0]
-            rows.append({
-                "as_of": v,
-                "Q4_2008_GDP_known_to_be": "n/a" if val is None else f"{val:+.1f}%",
-            })
+            rows.append(
+                {
+                    "as_of": v,
+                    "Q4_2008_GDP_known_to_be": "n/a" if val is None else f"{val:+.1f}%",
+                }
+            )
         with pl.Config(tbl_rows=20):
             print(pl.DataFrame(rows))
 
